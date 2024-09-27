@@ -18,7 +18,7 @@
 
     <kogito.bom.group-id>com.ibm.bamoe</kogito.bom.group-id>
     <kogito.bom.artifact-id>bamoe-bom</kogito.bom.artifact-id>
-    <kogito.bom.version>9.1.0-ibm-0001</kogito.bom.version>
+    <kogito.bom.version>9.1.1-ibm-0002</kogito.bom.version>
 
     <bamoe.techpreview.bom.artifact-id>bamoe-techpreview-bom</bamoe.techpreview.bom.artifact-id>
   </properties>
