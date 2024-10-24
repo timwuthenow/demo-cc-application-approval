@@ -1,14 +1,7 @@
 @echo off
 setlocal EnableDelayedExpansion
 
-:: Prompt for namespace first
-set /p NAMESPACE="Input Namespace: "
-echo Selected namespace: %NAMESPACE%
-
-:: Switch to the namespace immediately
-oc project %NAMESPACE%
-
-:: Function to setup registry credentials
+:: Define function first, before any calls to it
 :setup_registry_credentials
 echo Setting up registry credentials in namespace: %NAMESPACE%
 
@@ -49,10 +42,18 @@ if !ERRORLEVEL! NEQ 0 (
 ) else (
     echo Secret already linked to default service account
 )
+goto :eof
 
-:: Setup registry credentials and switch to project
-call :setup_registry_credentials "%NAMESPACE%"
+:: Start main script execution
+:: Prompt for namespace first
+set /p NAMESPACE="Input Namespace: "
+echo Selected namespace: %NAMESPACE%
+
+:: Switch to the namespace immediately
 oc project %NAMESPACE%
+
+:: Call setup_registry_credentials just once
+call :setup_registry_credentials
 
 :: Confirm service name
 set SERVICE_NAME=cc-application-approval
