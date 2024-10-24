@@ -294,42 +294,7 @@ echo apiVersion: v1>> mgmt-console.yaml
 echo kind: Service>> mgmt-console.yaml
 echo metadata:>> mgmt-console.yaml
 echo   name: %MGMT_CONSOLE_NAME%>> mgmt-console.yaml
-echo   namespace: %NAMESPACE%>>
-echo spec:>> mgmt-console.yaml
-echo   replicas: 1>> mgmt-console.yaml
-echo   selector:>> mgmt-console.yaml
-echo     matchLabels:>> mgmt-console.yaml
-echo       app: %MGMT_CONSOLE_NAME%>> mgmt-console.yaml
-echo   template:>> mgmt-console.yaml
-echo     metadata:>> mgmt-console.yaml
-echo       labels:>> mgmt-console.yaml
-echo         app: %MGMT_CONSOLE_NAME%>> mgmt-console.yaml
-echo     spec:>> mgmt-console.yaml
-echo       containers:>> mgmt-console.yaml
-echo       - name: management-console>> mgmt-console.yaml
-echo         image: quay.io/bamoe/management-console:9.1.0-ibm-0001>> mgmt-console.yaml
-echo         ports:>> mgmt-console.yaml
-echo         - containerPort: 8080>> mgmt-console.yaml
-echo         env:>> mgmt-console.yaml
-echo         - name: RUNTIME_TOOLS_MANAGEMENT_CONSOLE_KOGITO_ENV_MODE>> mgmt-console.yaml
-echo           value: "DEV">> mgmt-console.yaml
-echo         - name: RUNTIME_TOOLS_MANAGEMENT_CONSOLE_DATA_INDEX_ENDPOINT>> mgmt-console.yaml
-echo           value: "https://%ROUTE_HOST%/graphql">> mgmt-console.yaml
-echo         - name: KOGITO_CONSOLES_KEYCLOAK_HEALTH_CHECK_URL>> mgmt-console.yaml
-echo           value: "https://%KEYCLOAK_BASE_URL%/auth/realms/%REALM%/.well-known/openid-configuration">> mgmt-console.yaml
-echo         - name: KOGITO_CONSOLES_KEYCLOAK_URL>> mgmt-console.yaml
-echo           value: "https://%KEYCLOAK_BASE_URL%/auth">> mgmt-console.yaml
-echo         - name: KOGITO_CONSOLES_KEYCLOAK_REALM>> mgmt-console.yaml
-echo           value: "%REALM%">> mgmt-console.yaml
-echo         - name: KOGITO_CONSOLES_KEYCLOAK_CLIENT_ID>> mgmt-console.yaml
-echo           value: "management-console">> mgmt-console.yaml
-echo         - name: KOGITO_CONSOLES_KEYCLOAK_CLIENT_SECRET>> mgmt-console.yaml
-echo           value: fBd92XRwPlWDt4CSIIDHSxbcB1w0p3jm>> mgmt-console.yaml
-echo --->> mgmt-console.yaml
-echo apiVersion: v1>> mgmt-console.yaml
-echo kind: Service>> mgmt-console.yaml
-echo metadata:>> mgmt-console.yaml
-echo   name: %MGMT_CONSOLE_NAME%>> mgmt-console.yaml
+echo   namespace: %NAMESPACE%>> mgmt-console.yaml
 echo spec:>> mgmt-console.yaml
 echo   selector:>> mgmt-console.yaml
 echo     app: %MGMT_CONSOLE_NAME%>> mgmt-console.yaml
@@ -341,6 +306,7 @@ echo apiVersion: route.openshift.io/v1>> mgmt-console.yaml
 echo kind: Route>> mgmt-console.yaml
 echo metadata:>> mgmt-console.yaml
 echo   name: %MGMT_CONSOLE_NAME%>> mgmt-console.yaml
+echo   namespace: %NAMESPACE%>> mgmt-console.yaml
 echo spec:>> mgmt-console.yaml
 echo   to:>> mgmt-console.yaml
 echo     kind: Service>> mgmt-console.yaml
@@ -352,7 +318,6 @@ echo     termination: edge>> mgmt-console.yaml
 
 oc apply -f mgmt-console.yaml
 del mgmt-console.yaml
-
 :: Display final URLs
 for /f "tokens=*" %%a in ('oc get route %SERVICE_NAME% -o jsonpath^={.spec.host}') do (
     echo Deployment completed. Application is available at https://%%a/q/swagger-ui
