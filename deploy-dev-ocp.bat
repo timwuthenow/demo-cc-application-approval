@@ -1,7 +1,10 @@
 @echo off
 setlocal EnableDelayedExpansion
 
-:: Define function first, before any calls to it
+:: Skip over function definitions
+goto :main
+
+:: Function definitions
 :setup_registry_credentials
 echo Setting up registry credentials in namespace: %NAMESPACE%
 
@@ -42,9 +45,10 @@ if !ERRORLEVEL! NEQ 0 (
 ) else (
     echo Secret already linked to default service account
 )
-goto :eof
+exit /b 0
 
-:: Start main script execution
+:main
+:: Main script starts here
 :: Prompt for namespace first
 set /p NAMESPACE="Input Namespace: "
 echo Selected namespace: %NAMESPACE%
