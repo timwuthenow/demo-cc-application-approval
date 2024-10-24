@@ -1,9 +1,16 @@
 @echo off
 setlocal EnableDelayedExpansion
 
+:: Prompt for namespace first
+set /p NAMESPACE="Input Namespace: "
+echo Selected namespace: %NAMESPACE%
+
+:: Switch to the namespace immediately
+oc project %NAMESPACE%
+
 :: Function to setup registry credentials
 :setup_registry_credentials
-echo Setting up registry credentials in namespace: %~1
+echo Setting up registry credentials in namespace: %NAMESPACE%
 
 :: Get registry token
 for /f "tokens=*" %%a in ('oc whoami -t') do set TOKEN=%%a
@@ -17,10 +24,10 @@ echo Logging into OpenShift registry...
 oc registry login 2>nul
 
 :: Check if secret already exists
-oc get secret registry-credentials >nul 2>&1
+oc get secret registry-credentials -n %NAMESPACE% >nul 2>&1
 if !ERRORLEVEL! EQU 0 (
     echo Registry credentials secret already exists, updating...
-    oc delete secret registry-credentials
+    oc delete secret registry-credentials -n %NAMESPACE%
 ) else (
     echo Creating new registry credentials secret...
 )
@@ -30,21 +37,18 @@ for /f "tokens=*" %%a in ('oc whoami') do set USERNAME=%%a
 oc create secret docker-registry registry-credentials ^
     --docker-server=image-registry.openshift-image-registry.svc:5000 ^
     --docker-username=!USERNAME! ^
-    --docker-password=!TOKEN! 2>nul
+    --docker-password=!TOKEN! ^
+    -n %NAMESPACE% 2>nul
 
 :: Check if secret is linked to default service account
-for /f "tokens=*" %%a in ('oc get sa default -o jsonpath^={.imagePullSecrets[*].name}') do set EXISTING_SECRETS=%%a
+for /f "tokens=*" %%a in ('oc get sa default -n %NAMESPACE% -o jsonpath^={.imagePullSecrets[*].name}') do set EXISTING_SECRETS=%%a
 echo !EXISTING_SECRETS! | findstr /C:"registry-credentials" >nul
 if !ERRORLEVEL! NEQ 0 (
     echo Linking registry-credentials secret to default service account...
-    oc secrets link default registry-credentials --for=pull
+    oc secrets link default registry-credentials --for=pull -n %NAMESPACE%
 ) else (
     echo Secret already linked to default service account
 )
-exit /b 0
-
-:: Prompt for namespace
-set /p NAMESPACE="Input Namespace: "
 
 :: Setup registry credentials and switch to project
 call :setup_registry_credentials "%NAMESPACE%"
