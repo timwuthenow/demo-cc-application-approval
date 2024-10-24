@@ -1,9 +1,54 @@
 @echo off
 setlocal EnableDelayedExpansion
 
+:: Function to setup registry credentials
+:setup_registry_credentials
+echo Setting up registry credentials in namespace: %~1
+
+:: Get registry token
+for /f "tokens=*" %%a in ('oc whoami -t') do set TOKEN=%%a
+if "!TOKEN!"=="" (
+    echo Failed to get OpenShift token. Please ensure you're logged in.
+    exit /b 1
+)
+
+:: Login to registry
+echo Logging into OpenShift registry...
+oc registry login 2>nul
+
+:: Check if secret already exists
+oc get secret registry-credentials >nul 2>&1
+if !ERRORLEVEL! EQU 0 (
+    echo Registry credentials secret already exists, updating...
+    oc delete secret registry-credentials
+) else (
+    echo Creating new registry credentials secret...
+)
+
+:: Create registry credentials secret
+for /f "tokens=*" %%a in ('oc whoami') do set USERNAME=%%a
+oc create secret docker-registry registry-credentials ^
+    --docker-server=image-registry.openshift-image-registry.svc:5000 ^
+    --docker-username=!USERNAME! ^
+    --docker-password=!TOKEN! 2>nul
+
+:: Check if secret is linked to default service account
+for /f "tokens=*" %%a in ('oc get sa default -o jsonpath^={.imagePullSecrets[*].name}') do set EXISTING_SECRETS=%%a
+echo !EXISTING_SECRETS! | findstr /C:"registry-credentials" >nul
+if !ERRORLEVEL! NEQ 0 (
+    echo Linking registry-credentials secret to default service account...
+    oc secrets link default registry-credentials --for=pull
+) else (
+    echo Secret already linked to default service account
+)
+exit /b 0
+
 :: Prompt for namespace
 set /p NAMESPACE="Input Namespace: "
-oc namespace $NAMESPACE
+
+:: Setup registry credentials and switch to project
+call :setup_registry_credentials "%NAMESPACE%"
+oc project %NAMESPACE%
 
 :: Confirm service name
 set SERVICE_NAME=cc-application-approval
@@ -40,8 +85,7 @@ curl -s -k -X POST "https://%KEYCLOAK_BASE_URL%/auth/realms/master/protocol/open
   -d "grant_type=password" ^
   -d "client_id=admin-cli" > token_response.tmp
 
-:: Parse the token from response (requires external tool like jq, or you can use findstr for basic parsing)
-:: Here we're using findstr for basic parsing
+:: Parse the token from response
 for /f "tokens=2 delims=:," %%a in ('type token_response.tmp ^| findstr "access_token"') do (
     set TOKEN=%%a
     :: Remove quotes and leading/trailing spaces
@@ -106,7 +150,7 @@ oc delete deployment %SERVICE_NAME% --ignore-not-found=true
 oc delete deployment %TASK_CONSOLE_NAME% --ignore-not-found=true
 oc delete deployment %MGMT_CONSOLE_NAME% --ignore-not-found=true
 
-:: Build and deploy the application
+:: Build and deploy the application with image pull secrets
 call mvn clean package ^
     -Dquarkus.container-image.build=true ^
     -Dquarkus.kubernetes-client.namespace=%NAMESPACE% ^
@@ -115,7 +159,8 @@ call mvn clean package ^
     -Dquarkus.application.name=%SERVICE_NAME% ^
     -Dkogito.service.url=https://%SERVICE_NAME%-%NAMESPACE%.%BASE_URL% ^
     -Dkogito.jobs-service.url=https://%SERVICE_NAME%-%NAMESPACE%.%BASE_URL% ^
-    -Dkogito.dataindex.http.url=https://%SERVICE_NAME%-%NAMESPACE%.%BASE_URL%
+    -Dkogito.dataindex.http.url=https://%SERVICE_NAME%-%NAMESPACE%.%BASE_URL% ^
+    -Dquarkus.openshift.image-pull-secrets=registry-credentials
 
 :: Get the route host
 for /f "tokens=*" %%a in ('oc get route %SERVICE_NAME% -o jsonpath^={.spec.host}') do set ROUTE_HOST=%%a
@@ -134,6 +179,7 @@ echo apiVersion: apps/v1> task-console.yaml
 echo kind: Deployment>> task-console.yaml
 echo metadata:>> task-console.yaml
 echo   name: %TASK_CONSOLE_NAME%>> task-console.yaml
+echo   namespace: %NAMESPACE%>> task-console.yaml
 echo spec:>> task-console.yaml
 echo   replicas: 1>> task-console.yaml
 echo   selector:>> task-console.yaml
@@ -144,9 +190,12 @@ echo     metadata:>> task-console.yaml
 echo       labels:>> task-console.yaml
 echo         app: %TASK_CONSOLE_NAME%>> task-console.yaml
 echo     spec:>> task-console.yaml
+echo       imagePullSecrets:>> task-console.yaml
+echo       - name: registry-credentials>> task-console.yaml
 echo       containers:>> task-console.yaml
 echo       - name: task-console>> task-console.yaml
 echo         image: quay.io/bamoe/task-console:9.1.0-ibm-0001>> task-console.yaml
+echo         imagePullPolicy: Always>> task-console.yaml
 echo         ports:>> task-console.yaml
 echo         - containerPort: 8080>> task-console.yaml
 echo         env:>> task-console.yaml
@@ -167,6 +216,7 @@ echo apiVersion: v1>> task-console.yaml
 echo kind: Service>> task-console.yaml
 echo metadata:>> task-console.yaml
 echo   name: %TASK_CONSOLE_NAME%>> task-console.yaml
+echo   namespace: %NAMESPACE%>> task-console.yaml
 echo spec:>> task-console.yaml
 echo   selector:>> task-console.yaml
 echo     app: %TASK_CONSOLE_NAME%>> task-console.yaml
@@ -178,6 +228,7 @@ echo apiVersion: route.openshift.io/v1>> task-console.yaml
 echo kind: Route>> task-console.yaml
 echo metadata:>> task-console.yaml
 echo   name: %TASK_CONSOLE_NAME%>> task-console.yaml
+echo   namespace: %NAMESPACE%>> task-console.yaml
 echo spec:>> task-console.yaml
 echo   to:>> task-console.yaml
 echo     kind: Service>> task-console.yaml
@@ -195,6 +246,46 @@ echo apiVersion: apps/v1> mgmt-console.yaml
 echo kind: Deployment>> mgmt-console.yaml
 echo metadata:>> mgmt-console.yaml
 echo   name: %MGMT_CONSOLE_NAME%>> mgmt-console.yaml
+echo   namespace: %NAMESPACE%>> mgmt-console.yaml
+echo spec:>> mgmt-console.yaml
+echo   replicas: 1>> mgmt-console.yaml
+echo   selector:>> mgmt-console.yaml
+echo     matchLabels:>> mgmt-console.yaml
+echo       app: %MGMT_CONSOLE_NAME%>> mgmt-console.yaml
+echo   template:>> mgmt-console.yaml
+echo     metadata:>> mgmt-console.yaml
+echo       labels:>> mgmt-console.yaml
+echo         app: %MGMT_CONSOLE_NAME%>> mgmt-console.yaml
+echo     spec:>> mgmt-console.yaml
+echo       imagePullSecrets:>> mgmt-console.yaml
+echo       - name: registry-credentials>> mgmt-console.yaml
+echo       containers:>> mgmt-console.yaml
+echo       - name: management-console>> mgmt-console.yaml
+echo         image: quay.io/bamoe/management-console:9.1.0-ibm-0001>> mgmt-console.yaml
+echo         imagePullPolicy: Always>> mgmt-console.yaml
+echo         ports:>> mgmt-console.yaml
+echo         - containerPort: 8080>> mgmt-console.yaml
+echo         env:>> mgmt-console.yaml
+echo         - name: RUNTIME_TOOLS_MANAGEMENT_CONSOLE_KOGITO_ENV_MODE>> mgmt-console.yaml
+echo           value: "DEV">> mgmt-console.yaml
+echo         - name: RUNTIME_TOOLS_MANAGEMENT_CONSOLE_DATA_INDEX_ENDPOINT>> mgmt-console.yaml
+echo           value: "https://%ROUTE_HOST%/graphql">> mgmt-console.yaml
+echo         - name: KOGITO_CONSOLES_KEYCLOAK_HEALTH_CHECK_URL>> mgmt-console.yaml
+echo           value: "https://%KEYCLOAK_BASE_URL%/auth/realms/%REALM%/.well-known/openid-configuration">> mgmt-console.yaml
+echo         - name: KOGITO_CONSOLES_KEYCLOAK_URL>> mgmt-console.yaml
+echo           value: "https://%KEYCLOAK_BASE_URL%/auth">> mgmt-console.yaml
+echo         - name: KOGITO_CONSOLES_KEYCLOAK_REALM>> mgmt-console.yaml
+echo           value: "%REALM%">> mgmt-console.yaml
+echo         - name: KOGITO_CONSOLES_KEYCLOAK_CLIENT_ID>> mgmt-console.yaml
+echo           value: "management-console">> mgmt-console.yaml
+echo         - name: KOGITO_CONSOLES_KEYCLOAK_CLIENT_SECRET>> mgmt-console.yaml
+echo           value: fBd92XRwPlWDt4CSIIDHSxbcB1w0p3jm>> mgmt-console.yaml
+echo --->> mgmt-console.yaml
+echo apiVersion: v1>> mgmt-console.yaml
+echo kind: Service>> mgmt-console.yaml
+echo metadata:>> mgmt-console.yaml
+echo   name: %MGMT_CONSOLE_NAME%>> mgmt-console.yaml
+echo   namespace: %NAMESPACE%>>
 echo spec:>> mgmt-console.yaml
 echo   replicas: 1>> mgmt-console.yaml
 echo   selector:>> mgmt-console.yaml
