@@ -1,7 +1,50 @@
 #!/bin/bash
 
+# Function to setup registry credentials
+setup_registry_credentials() {
+    local namespace=$1
+    echo "Setting up registry credentials in namespace: $namespace"
+    
+    # Get registry token
+    TOKEN=$(oc whoami -t)
+    if [ -z "$TOKEN" ]; then
+        echo "Failed to get OpenShift token. Please ensure you're logged in."
+        exit 1
+    fi
+    
+    # Login to registry
+    echo "Logging into OpenShift registry..."
+    oc registry login || true  # Continue even if this fails
+    
+    # Check if secret already exists
+    if oc get secret registry-credentials >/dev/null 2>&1; then
+        echo "Registry credentials secret already exists, updating..."
+        oc delete secret registry-credentials
+    else
+        echo "Creating new registry credentials secret..."
+    fi
+    
+    # Create registry credentials secret
+    oc create secret docker-registry registry-credentials \
+        --docker-server=image-registry.openshift-image-registry.svc:5000 \
+        --docker-username=$(oc whoami) \
+        --docker-password=${TOKEN} || true
+    
+    # Link secret to default service account if not already linked
+    if ! oc get sa default -o jsonpath='{.imagePullSecrets[*].name}' | grep -q "registry-credentials"; then
+        echo "Linking registry-credentials secret to default service account..."
+        oc secrets link default registry-credentials --for=pull
+    else
+        echo "Secret already linked to default service account"
+    fi
+}
+
 # Prompt for namespace
 read -p "Input Namespace: " NAMESPACE
+
+# Setup registry credentials and switch to project
+setup_registry_credentials "$NAMESPACE"
+oc project $NAMESPACE
 
 # Confirm service name
 SERVICE_NAME="cc-application-approval"
@@ -18,7 +61,7 @@ ADMIN_USERNAME="admin"
 read -s -p "Enter Keycloak admin password: " ADMIN_PASSWORD
 echo
 
-echo "Keycloak Base URL is: " $KEYCLOAK_BASE_URL
+echo "Keycloak Base URL is: $KEYCLOAK_BASE_URL"
 read -p "Confirm service name ($SERVICE_NAME)? [Y/n]: " CONFIRM
 if [[ $CONFIRM =~ ^[Nn]$ ]]; then
     read -p "Enter new service name: " SERVICE_NAME
@@ -51,10 +94,10 @@ get_token() {
     TOKEN=$(extract_json_value "$TOKEN_RESPONSE" "access_token")
 
     if [ -z "$TOKEN" ] || [ "$TOKEN" == "null" ]; then
-      echo "Failed to obtain access token. Check your credentials and Keycloak configuration."
-      echo "Response from Keycloak:"
-      echo "$TOKEN_RESPONSE"
-      exit 1
+        echo "Failed to obtain access token. Check your credentials and Keycloak configuration."
+        echo "Response from Keycloak:"
+        echo "$TOKEN_RESPONSE"
+        exit 1
     fi
     
     echo "Successfully obtained access token"
@@ -162,7 +205,7 @@ oc delete deployment $SERVICE_NAME --ignore-not-found=true
 oc delete deployment $TASK_CONSOLE_NAME --ignore-not-found=true
 oc delete deployment $MGMT_CONSOLE_NAME --ignore-not-found=true
 
-# Build and deploy the application
+# Build and deploy the application with image pull secrets
 mvn clean package \
     -Dquarkus.container-image.build=true \
     -Dquarkus.kubernetes-client.namespace=$NAMESPACE \
@@ -171,7 +214,8 @@ mvn clean package \
     -Dquarkus.application.name=$SERVICE_NAME \
     -Dkogito.service.url=https://$SERVICE_NAME-$NAMESPACE.$BASE_URL \
     -Dkogito.jobs-service.url=https://$SERVICE_NAME-$NAMESPACE.$BASE_URL \
-    -Dkogito.dataindex.http.url=https://$SERVICE_NAME-$NAMESPACE.$BASE_URL
+    -Dkogito.dataindex.http.url=https://$SERVICE_NAME-$NAMESPACE.$BASE_URL \
+    -Dquarkus.openshift.image-pull-secrets=registry-credentials
 
 # Get the route host
 ROUTE_HOST=$(oc get route $SERVICE_NAME -o jsonpath='{.spec.host}')
@@ -191,6 +235,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: $TASK_CONSOLE_NAME
+  namespace: $NAMESPACE
 spec:
   replicas: 1
   selector:
@@ -201,9 +246,12 @@ spec:
       labels:
         app: $TASK_CONSOLE_NAME
     spec:
+      imagePullSecrets:
+      - name: registry-credentials
       containers:
       - name: task-console
         image: quay.io/bamoe/task-console:9.1.0-ibm-0001
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
         env:
@@ -224,6 +272,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: $TASK_CONSOLE_NAME
+  namespace: $NAMESPACE
 spec:
   selector:
     app: $TASK_CONSOLE_NAME
@@ -235,6 +284,7 @@ apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
   name: $TASK_CONSOLE_NAME
+  namespace: $NAMESPACE
 spec:
   to:
     kind: Service
@@ -251,6 +301,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: $MGMT_CONSOLE_NAME
+  namespace: $NAMESPACE
 spec:
   replicas: 1
   selector:
@@ -261,9 +312,12 @@ spec:
       labels:
         app: $MGMT_CONSOLE_NAME
     spec:
+      imagePullSecrets:
+      - name: registry-credentials
       containers:
       - name: management-console
         image: quay.io/bamoe/management-console:9.1.0-ibm-0001
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
         env:
@@ -286,6 +340,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: $MGMT_CONSOLE_NAME
+  namespace: $NAMESPACE
 spec:
   selector:
     app: $MGMT_CONSOLE_NAME
@@ -297,6 +352,7 @@ apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
   name: $MGMT_CONSOLE_NAME
+  namespace: $NAMESPACE
 spec:
   to:
     kind: Service

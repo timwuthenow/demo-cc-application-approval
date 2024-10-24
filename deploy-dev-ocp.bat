@@ -3,6 +3,7 @@ setlocal EnableDelayedExpansion
 
 :: Prompt for namespace
 set /p NAMESPACE="Input Namespace: "
+oc namespace $NAMESPACE
 
 :: Confirm service name
 set SERVICE_NAME=cc-application-approval
